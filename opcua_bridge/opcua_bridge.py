@@ -35,6 +35,38 @@ class OpcuaBridge(Node):
         self.server = Server()
         self.endpoint='opc.tcp://0.0.0.0:4840/freeopcua/server/'
         self.uri='http://automation.ceff.ch'
+    
+    async def setup_address_space(self):
+        await self.server.init()
+        self.server.set_endpoint(self.endpoint)
+        self.server.set_server_name("Voron0 printer OPC UA server")
+        # set all possible endpoint policies for clients to connect through
+        self.server.set_security_policy(
+            [
+                ua.SecurityPolicyType.NoSecurity,
+                ua.SecurityPolicyType.Basic256Sha256_SignAndEncrypt,
+                ua.SecurityPolicyType.Basic256Sha256_Sign,
+            ]
+        )
+
+        # set up our own namespace, not really necessary but should as spec
+        self.idx = await self.server.register_namespace(self.uri)
+        # populating our address space
+        # server.nodes, contains links to very common nodes like objects and root
+
+        # printer object
+        dev = await self.server.nodes.base_object_type.add_object_type(self.idx, '3D printer type')
+        self.printerObj = await self.server.nodes.objects.add_object(self.idx, '3D printer', dev)
+        #   info object
+        printerInfoObj = await self.printerObj.add_object(self.idx, "Info")
+        await printerInfoObj.add_property(self.idx, "Name", ua.Variant("", ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Manufacturer", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Model", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Location", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "CPU info", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_variable(self.idx, "State", ua.Variant("", ua.VariantType.String))
+        await printerInfoObj.add_variable(self.idx, "State message", ua.Variant("", ua.VariantType.String))
+
 
 
 
@@ -42,6 +74,7 @@ class OpcuaBridge(Node):
 async def run(args=None):
     rclpy.init(args=args)
     bridge = OpcuaBridge()
+    await bridge.setup_address_space()
     async with bridge.server:
         while rclpy.ok():
             rclpy.spin_once(bridge, timeout_sec=0)
