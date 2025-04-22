@@ -26,6 +26,8 @@ from asyncua.common.methods import uamethod
 import rclpy
 from rclpy.node import Node
 
+from printer_interfaces.msg import PrinterState
+
 class OpcuaBridge(Node):
 
     def __init__(self):
@@ -35,6 +37,18 @@ class OpcuaBridge(Node):
         self.server = Server()
         self.endpoint='opc.tcp://0.0.0.0:4840/freeopcua/server/'
         self.uri='http://automation.ceff.ch'
+
+        self.printer_state_sub_ = self.create_subscription(
+            PrinterState,
+            'moonraker_bridge/status/state',
+            self.update_printer_state,
+            10)
+        self.printer_state_sub_  # prevent unused variable warning
+
+    async def update_printer_state(self, msg):
+        a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:State"])
+        await a_node.set_value(msg.current_state)
+        self.get_logger().info('Setting state value to: "%s"' % msg.current_state)
     
     async def setup_address_space(self):
         await self.server.init()
