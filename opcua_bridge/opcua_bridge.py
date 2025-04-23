@@ -27,6 +27,7 @@ import rclpy
 from rclpy.node import Node
 
 from printer_interfaces.msg import PrinterState
+from printer_interfaces.srv import GetPrinterInfo
 
 class OpcuaBridge(Node):
 
@@ -45,12 +46,21 @@ class OpcuaBridge(Node):
             10)
         self.printer_state_sub_  # prevent unused variable warning
 
+        # wait for service to be available
+        self.get_printer_info_client_ = self.create_client(GetPrinterInfo, 'moonraker_bridge/commands/get_printer_info')
+        while not self.get_printer_info_client_.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('service not available, waiting again...')
+
     async def update_printer_state(self, msg):
         a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:State"])
         await a_node.set_value(msg.current_state)
         self.get_logger().info('Setting state value to: "%s"' % msg.current_state)
     
     async def setup_address_space(self):
+        # get the printer details pseudo-syncronousely
+        future = self.get_printer_info_client_.call_async(GetPrinterInfo.Request())
+        rclpy.spin_until_future_complete(self, future)
+        response=future.result()  
         await self.server.init()
         self.server.set_endpoint(self.endpoint)
         self.server.set_server_name("Voron0 printer OPC UA server")
@@ -73,11 +83,11 @@ class OpcuaBridge(Node):
         self.printerObj = await self.server.nodes.objects.add_object(self.idx, '3D printer', dev)
         #   info object
         printerInfoObj = await self.printerObj.add_object(self.idx, "Info")
-        await printerInfoObj.add_property(self.idx, "Name", ua.Variant("", ua.VariantType.String))
-        await printerInfoObj.add_property(self.idx, "Manufacturer", ua.Variant('', ua.VariantType.String))
-        await printerInfoObj.add_property(self.idx, "Model", ua.Variant('', ua.VariantType.String))
-        await printerInfoObj.add_property(self.idx, "Location", ua.Variant('', ua.VariantType.String))
-        await printerInfoObj.add_property(self.idx, "CPU info", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Name", ua.Variant(response.hostname, ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Manufacturer", ua.Variant(response.manufacturer, ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Model", ua.Variant(response.model, ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Location", ua.Variant(response.location, ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "CPU info", ua.Variant(response.cpu_info, ua.VariantType.String))
         await printerInfoObj.add_variable(self.idx, "State", ua.Variant("", ua.VariantType.String))
         await printerInfoObj.add_variable(self.idx, "State message", ua.Variant("", ua.VariantType.String))
 
