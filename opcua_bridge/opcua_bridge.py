@@ -27,7 +27,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.task import Future
 
-from printer_interfaces.msg import PrinterState, HeaterBed
+from printer_interfaces.msg import PrinterState, HeaterBed, Extruder
 from printer_interfaces.srv import GetPrinterInfo, QueryEndStops
 
 class OpcuaBridge(Node):
@@ -54,6 +54,12 @@ class OpcuaBridge(Node):
             self.update_heater_bed,
             10)
         self.heater_bed_sub_  # prevent unused variable warning
+        self.extruder_sub_ = self.create_subscription(
+            Extruder,
+            'moonraker_bridge/status/extruder',
+            self.update_extruder,
+            10)
+        self.extruder_sub_  # prevent unused variable warning
 
         # wait for service to be available
         self.get_printer_info_client_ = self.create_client(GetPrinterInfo, 'moonraker_bridge/commands/get_printer_info')
@@ -141,6 +147,18 @@ class OpcuaBridge(Node):
             a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Bed', f'{self.idx}:Temperature set point'])
             await a_node.set_value(msg.target)
             a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Bed', f'{self.idx}:Power (PWM)'])
+            await a_node.set_value(msg.power_pwm)
+
+        else:
+            self.get_logger().warning('Processing heater_bed message but address_space not currently setup')
+    
+    async def update_extruder(self, msg):
+        if self.printerObj is not None:
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Hotend', f'{self.idx}:Temperature'])
+            await a_node.set_value(msg.temperature)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Hotend', f'{self.idx}:Temperature set point'])
+            await a_node.set_value(msg.target)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Hotend', f'{self.idx}:Power (PWM)'])
             await a_node.set_value(msg.power_pwm)
 
         else:
