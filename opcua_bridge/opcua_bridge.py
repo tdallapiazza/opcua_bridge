@@ -206,7 +206,7 @@ class OpcuaBridge(Node):
     async def start_printing(self, parent, file):
         req = StartPrintJob.Request()
         req.filename = file
-        self.set_extruder_temperature_client_.call_async(req)
+        self.start_print_job_client_.call_async(req)
 
     
     async def setup_address_space(self):
