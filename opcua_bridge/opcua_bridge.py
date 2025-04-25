@@ -28,7 +28,7 @@ from rclpy.node import Node
 from rclpy.task import Future
 
 from printer_interfaces.msg import PrinterState, HeaterBed, Extruder
-from printer_interfaces.srv import GetPrinterInfo, QueryEndStops
+from printer_interfaces.srv import GetPrinterInfo, QueryEndStops, SetBedTemperature, SetExtruderTemperature
 
 class OpcuaBridge(Node):
 
@@ -74,9 +74,15 @@ class OpcuaBridge(Node):
         # wait for service to be available
         self.get_printer_info_client_ = self.create_client(GetPrinterInfo, 'moonraker_bridge/commands/get_printer_info')
         self.query_end_stops_client_ = self.create_client(QueryEndStops, 'moonraker_bridge/commands/query_endstops')
+        self.set_bed_temperature_client_ = self.create_client(SetBedTemperature, 'moonraker_bridge/commands/set_bed_temperature')
+        self.set_extruder_temperature_client_ = self.create_client(SetExtruderTemperature, 'moonraker_bridge/commands/set_extruder_temperature')
         while not self.get_printer_info_client_.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
         while not self.query_end_stops_client_.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('service not available, waiting again...')
+        while not self.set_bed_temperature_client_.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('service not available, waiting again...')
+        while not self.set_extruder_temperature_client_.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
 
 
@@ -177,10 +183,22 @@ class OpcuaBridge(Node):
 
     @uamethod
     async def query_endstops(self, parent):
-        self.get_logger().info('Querying endstops status')
         future = self.query_end_stops_client_.call_async(QueryEndStops.Request())
         future.add_done_callback(self.process_query_endstops_msg)
         return 'Query sent and executed asyncronously. Result might take time to return.'
+    
+    @uamethod
+    async def set_bed_temperature(self, parent, temp):
+        req = SetBedTemperature.Request()
+        req.temperature = temp
+        self.set_bed_temperature_client_.call_async(req)
+    
+    @uamethod
+    async def set_extruder_temperature(self, parent, temp):
+        req = SetExtruderTemperature.Request()
+        req.temperature = temp
+        self.set_extruder_temperature_client_.call_async(req)
+
     
     async def setup_address_space(self):
         # Init the opc server
@@ -278,6 +296,22 @@ class OpcuaBridge(Node):
             self.query_endstops,
             [],
             [ua.VariantType.String]
+        )
+
+        await printerActionObj.add_method(
+            ua.NodeId("Set extruder tempertature", self.idx),
+            ua.QualifiedName("Set extruder tempertature", self.idx),
+            self.set_extruder_temperature,
+            [ua.VariantType.Double],
+            []
+        )
+
+        await printerActionObj.add_method(
+            ua.NodeId("Set bed tempertature", self.idx),
+            ua.QualifiedName("Set bed tempertature", self.idx),
+            self.set_bed_temperature,
+            [ua.VariantType.Double],
+            []
         )
 
         # Finally try to get the printer info
