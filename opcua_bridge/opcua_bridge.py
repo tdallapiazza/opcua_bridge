@@ -25,6 +25,7 @@ from asyncua.common.methods import uamethod
 
 import rclpy
 from rclpy.node import Node
+from rclpy.task import Future
 
 from printer_interfaces.msg import PrinterState
 from printer_interfaces.srv import GetPrinterInfo
@@ -39,6 +40,8 @@ class OpcuaBridge(Node):
         self.endpoint='opc.tcp://0.0.0.0:4840/freeopcua/server/'
         self.uri='http://automation.ceff.ch'
 
+        self.printerObj = None
+
         self.printer_state_sub_ = self.create_subscription(
             PrinterState,
             'moonraker_bridge/status/state',
@@ -51,16 +54,39 @@ class OpcuaBridge(Node):
         while not self.get_printer_info_client_.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
 
+    async def process_printer_info_msg(self, future: Future):
+        response=future.result()
+        if response is not None:
+            a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:Name"])
+            await a_node.set_value(response.hostname)
+            a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:Manufacturer"])
+            await a_node.set_value(response.manufacturer)
+            a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:Model"])
+            await a_node.set_value(response.model)
+            a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:Location"])
+            await a_node.set_value(response.location)
+            a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:CPU info"])
+            await a_node.set_value(response.cpu_info)
+            a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:State"])
+            await a_node.set_value(response.state)
+        else:
+            self.get_logger().warning('The printer_info response is empty...')
+    
     async def update_printer_state(self, msg):
-        a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:State"])
-        await a_node.set_value(msg.current_state)
-        self.get_logger().info('Setting state value to: "%s"' % msg.current_state)
+        if self.printerObj is not None:
+            if msg.previous_state == PrinterState.NOT_READY and msg.current_state == PrinterState.READY:
+                future = self.get_printer_info_client_.call_async(GetPrinterInfo.Request())
+                future.add_done_callback(self.process_printer_info_msg)
+            
+            a_node = await self.printerObj.get_child([f"{self.idx}:Info", f"{self.idx}:State"])
+            await a_node.set_value(msg.current_state)
+            self.get_logger().info('Setting state value to: "%s"' % msg.current_state)
+        else:
+            self.get_logger().warning('Processing printer_state message but address_space not currently setup')
     
     async def setup_address_space(self):
-        # get the printer details pseudo-syncronousely
-        future = self.get_printer_info_client_.call_async(GetPrinterInfo.Request())
-        rclpy.spin_until_future_complete(self, future)
-        response=future.result()  
+
+        # Init the opc server
         await self.server.init()
         self.server.set_endpoint(self.endpoint)
         self.server.set_server_name("Voron0 printer OPC UA server")
@@ -83,13 +109,16 @@ class OpcuaBridge(Node):
         self.printerObj = await self.server.nodes.objects.add_object(self.idx, '3D printer', dev)
         #   info object
         printerInfoObj = await self.printerObj.add_object(self.idx, "Info")
-        await printerInfoObj.add_property(self.idx, "Name", ua.Variant(response.hostname, ua.VariantType.String))
-        await printerInfoObj.add_property(self.idx, "Manufacturer", ua.Variant(response.manufacturer, ua.VariantType.String))
-        await printerInfoObj.add_property(self.idx, "Model", ua.Variant(response.model, ua.VariantType.String))
-        await printerInfoObj.add_property(self.idx, "Location", ua.Variant(response.location, ua.VariantType.String))
-        await printerInfoObj.add_property(self.idx, "CPU info", ua.Variant(response.cpu_info, ua.VariantType.String))
-        await printerInfoObj.add_variable(self.idx, "State", ua.Variant("", ua.VariantType.String))
-        await printerInfoObj.add_variable(self.idx, "State message", ua.Variant("", ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Name", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Manufacturer", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Model", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "Location", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_property(self.idx, "CPU info", ua.Variant('', ua.VariantType.String))
+        await printerInfoObj.add_variable(self.idx, "State", ua.Variant('', ua.VariantType.String))
+
+        # Finally try to get the printer info
+        future = self.get_printer_info_client_.call_async(GetPrinterInfo.Request())
+        future.add_done_callback(self.process_printer_info_msg)
 
 
 

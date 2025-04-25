@@ -8,5 +8,6 @@
         "/home/thomas/Voron0_rosws/src/install/moonraker_bridge/lib/python3.12/site-packages",
         "/home/thomas/Voron0_rosws/src/install/printer_interfaces/lib/python3.12/site-packages",
         "/opt/ros/jazzy/lib/python3.12/site-packages"
-    ]
+    ],
+    "ros.distro": "jazzy"
 }
