@@ -42,6 +42,15 @@ class OpcuaBridge(Node):
 
         self.printerObj = None
 
+        # Setup subscriptions
+        self.setup_subscriptions()
+
+        # Setup services clients
+        self.setup_clients()
+
+        
+
+    def setup_subscriptions(self):
         self.printer_state_sub_ = self.create_subscription(
             PrinterState,
             'moonraker_bridge/status/state',
@@ -61,6 +70,7 @@ class OpcuaBridge(Node):
             10)
         self.extruder_sub_  # prevent unused variable warning
 
+    def setup_clients(self):
         # wait for service to be available
         self.get_printer_info_client_ = self.create_client(GetPrinterInfo, 'moonraker_bridge/commands/get_printer_info')
         self.query_end_stops_client_ = self.create_client(QueryEndStops, 'moonraker_bridge/commands/query_endstops')
@@ -68,6 +78,7 @@ class OpcuaBridge(Node):
             self.get_logger().info('service not available, waiting again...')
         while not self.query_end_stops_client_.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
+
 
     async def process_printer_info_msg(self, future: Future):
         response=future.result()
