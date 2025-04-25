@@ -28,7 +28,7 @@ from rclpy.node import Node
 from rclpy.task import Future
 
 from printer_interfaces.msg import PrinterState
-from printer_interfaces.srv import GetPrinterInfo
+from printer_interfaces.srv import GetPrinterInfo, QueryEndStops
 
 class OpcuaBridge(Node):
 
@@ -51,7 +51,10 @@ class OpcuaBridge(Node):
 
         # wait for service to be available
         self.get_printer_info_client_ = self.create_client(GetPrinterInfo, 'moonraker_bridge/commands/get_printer_info')
+        self.query_end_stops_client_ = self.create_client(QueryEndStops, 'moonraker_bridge/commands/query_endstops')
         while not self.get_printer_info_client_.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('service not available, waiting again...')
+        while not self.query_end_stops_client_.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
 
     async def process_printer_info_msg(self, future: Future):
@@ -71,6 +74,17 @@ class OpcuaBridge(Node):
             await a_node.set_value(response.state)
         else:
             self.get_logger().warning('The printer_info response is empty...')
+
+    async def process_query_endstops_msg(self, future: Future):
+        self.get_logger().info('Query endstops future done.')
+        response=future.result()
+        if response is not None:
+            res= f"x:{response.x}, y:{response.y}, z:{response.z}"
+            self.get_logger().info('Query endstops response is: %s' % (res))
+            return res
+        else:
+            self.get_logger().warning('The query_endstops response is empty...')
+            return 'Could not retrieve endstops status'
     
     async def update_printer_state(self, msg):
         if self.printerObj is not None:
@@ -83,9 +97,15 @@ class OpcuaBridge(Node):
             self.get_logger().info('Setting state value to: "%s"' % msg.current_state)
         else:
             self.get_logger().warning('Processing printer_state message but address_space not currently setup')
+
+    @uamethod
+    async def query_endstops(self, parent):
+        self.get_logger().info('Querying endstops status')
+        future = self.query_end_stops_client_.call_async(QueryEndStops.Request())
+        future.add_done_callback(self.process_query_endstops_msg)
+        return 'Query sent and executed asyncronously. Result might take time to return.'
     
     async def setup_address_space(self):
-
         # Init the opc server
         await self.server.init()
         self.server.set_endpoint(self.endpoint)
@@ -115,6 +135,16 @@ class OpcuaBridge(Node):
         await printerInfoObj.add_property(self.idx, "Location", ua.Variant('', ua.VariantType.String))
         await printerInfoObj.add_property(self.idx, "CPU info", ua.Variant('', ua.VariantType.String))
         await printerInfoObj.add_variable(self.idx, "State", ua.Variant('', ua.VariantType.String))
+
+        #   actions
+        printerActionObj = await self.printerObj.add_object(self.idx, "Actions")
+        await printerActionObj.add_method(
+            ua.NodeId("Querry enstops", self.idx),
+            ua.QualifiedName("Querry enstops", self.idx),
+            self.query_endstops,
+            [],
+            [ua.VariantType.String]
+        )
 
         # Finally try to get the printer info
         future = self.get_printer_info_client_.call_async(GetPrinterInfo.Request())
