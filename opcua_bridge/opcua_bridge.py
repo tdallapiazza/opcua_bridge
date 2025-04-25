@@ -81,10 +81,26 @@ class OpcuaBridge(Node):
         if response is not None:
             res= f"x:{response.x}, y:{response.y}, z:{response.z}"
             self.get_logger().info('Query endstops response is: %s' % (res))
-            return res
+
+            my_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Frame', f'{self.idx}:X endstop triggered'])
+            if response.x == 'TRIGGERED':
+                await my_node.set_value(True)
+            else:
+                await my_node.set_value(False)
+            
+            my_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Frame', f'{self.idx}:Y endstop triggered'])
+            if response.y == 'TRIGGERED':
+                await my_node.set_value(True)
+            else:
+                await my_node.set_value(False)
+
+            my_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Frame', f'{self.idx}:Z endstop triggered'])
+            if response.z == 'TRIGGERED':
+                await my_node.set_value(True)
+            else:
+                await my_node.set_value(False)
         else:
             self.get_logger().warning('The query_endstops response is empty...')
-            return 'Could not retrieve endstops status'
     
     async def update_printer_state(self, msg):
         if self.printerObj is not None:
@@ -135,6 +151,63 @@ class OpcuaBridge(Node):
         await printerInfoObj.add_property(self.idx, "Location", ua.Variant('', ua.VariantType.String))
         await printerInfoObj.add_property(self.idx, "CPU info", ua.Variant('', ua.VariantType.String))
         await printerInfoObj.add_variable(self.idx, "State", ua.Variant('', ua.VariantType.String))
+
+        #   systems object
+        printerSystemObj = await self.printerObj.add_object(self.idx, "Systems")
+        #      bed
+        printerBedObj = await printerSystemObj.add_object(self.idx, "Bed")
+        await printerBedObj.add_property(self.idx, "X dimension", 0.0)
+        await printerBedObj.add_property(self.idx, "Y dimension", 0.0)
+        await printerBedObj.add_property(self.idx, "Rated power", 0.0)
+        await printerBedObj.add_variable(self.idx, "Temperature", 0.0)
+        await printerBedObj.add_variable(self.idx, "Temperature set point", 0.0)
+        await printerBedObj.add_variable(self.idx, "Power (PWM)", 0.0)
+        await printerBedObj.add_variable(self.idx, "Print plate present", ua.Variant(False, ua.VariantType.Boolean))
+        await printerBedObj.add_variable(self.idx, "Print plate ID", 0)
+
+        #      hotend
+        printerHotendObj = await printerSystemObj.add_object(self.idx, "Hotend")
+        await printerHotendObj.add_property(self.idx, "Manufacturer", ua.Variant('', ua.VariantType.String))
+        await printerHotendObj.add_property(self.idx, "Model", ua.Variant('', ua.VariantType.String))
+        await printerHotendObj.add_property(self.idx, "Rated power", 0.0)
+        await printerHotendObj.add_property(self.idx, "Nozzle diameter", 0.0)
+        await printerHotendObj.add_variable(self.idx, "Nozzle printing hours", 0.0)
+        await printerHotendObj.add_variable(self.idx, "Umblilical printing hours", 0.0)
+        await printerHotendObj.add_variable(self.idx, "Temperature", 0.0)
+        await printerHotendObj.add_variable(self.idx, "Temperature set point", 0.0)
+        await printerHotendObj.add_variable(self.idx, "Power (PWM)", 0.0)
+        await printerHotendObj.add_variable(self.idx, "Hot end fan ON", ua.Variant(False, ua.VariantType.Boolean))
+        await printerHotendObj.add_variable(self.idx, "Piece cooling fan speed", 0.0)
+
+        #      frame
+        printerFrameObj = await printerSystemObj.add_object(self.idx, "Frame")
+        await printerFrameObj.add_variable(self.idx, "Filament present", ua.Variant(False, ua.VariantType.Boolean))
+        await printerFrameObj.add_variable(self.idx, "X endstop triggered", ua.Variant(False, ua.VariantType.Boolean))
+        await printerFrameObj.add_variable(self.idx, "Y endstop triggered", ua.Variant(False, ua.VariantType.Boolean))
+        await printerFrameObj.add_variable(self.idx, "Z endstop triggered", ua.Variant(False, ua.VariantType.Boolean))
+        await printerFrameObj.add_variable(self.idx, "Chamber temperature", 0.0)
+
+        #      spool
+        printerSpoolObj = await printerSystemObj.add_object(self.idx, "Spool") # Structure from OpenTag spec. https://github.com/Bambu-Research-Group/RFID-Tag-Guide/blob/main/OpenTag.md
+        await printerSpoolObj.add_property(self.idx, "Tag version", 0)
+        await printerSpoolObj.add_property(self.idx, "Filament Manufacturer", ua.Variant('', ua.VariantType.String))
+        await printerSpoolObj.add_property(self.idx, "Material name", ua.Variant('', ua.VariantType.String))
+        await printerSpoolObj.add_property(self.idx, "Color Name", ua.Variant('', ua.VariantType.String))
+        await printerSpoolObj.add_property(self.idx, "Diameter", 0)
+        await printerSpoolObj.add_property(self.idx, "Weight (nominal)", 0)
+        await printerSpoolObj.add_property(self.idx, "Print Temp (C)", 0)
+        await printerSpoolObj.add_property(self.idx, "Bed Temp (C)", 0)
+        await printerSpoolObj.add_property(self.idx, "Density", 0)
+        await printerSpoolObj.add_property(self.idx, "Color Hex", 0x000000)
+        await printerSpoolObj.add_variable(self.idx, "Filament weight (measured)", 0)
+        await printerSpoolObj.add_variable(self.idx, "Filament length (measured)", 0)
+        
+        #   job object
+        printerJobObj = await self.printerObj.add_object(self.idx, "Job")
+        await printerJobObj.add_variable(self.idx, "State", ua.Variant('', ua.VariantType.String))
+        await printerJobObj.add_variable(self.idx, "State message", ua.Variant('', ua.VariantType.String))
+        await printerJobObj.add_variable(self.idx, "Total job duration [s]", 0.0)
+        await printerJobObj.add_variable(self.idx, "Job print time spent [s]", 0.0)
 
         #   actions
         printerActionObj = await self.printerObj.add_object(self.idx, "Actions")
