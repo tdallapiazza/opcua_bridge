@@ -28,7 +28,7 @@ from rclpy.node import Node
 from rclpy.task import Future
 
 from printer_interfaces.msg import PrinterState, HeaterBed, Extruder
-from printer_interfaces.srv import GetPrinterInfo, QueryEndStops, SetBedTemperature, SetExtruderTemperature, StartPrintJob
+from printer_interfaces.srv import GetPrinterInfo, QueryEndStops, SetBedTemperature, SetExtruderTemperature, StartPrintJob, ExecuteGCode
 
 class OpcuaBridge(Node):
 
@@ -77,6 +77,7 @@ class OpcuaBridge(Node):
         self.set_bed_temperature_client_ = self.create_client(SetBedTemperature, 'moonraker_bridge/commands/set_bed_temperature')
         self.set_extruder_temperature_client_ = self.create_client(SetExtruderTemperature, 'moonraker_bridge/commands/set_extruder_temperature')
         self.start_print_job_client_ = self.create_client(StartPrintJob, 'moonraker_bridge/commands/start_print_job')
+        self.execute_gcode_client_ = self.create_client(ExecuteGCode, 'moonraker_bridge/commands/execute_gcode')
         while not self.get_printer_info_client_.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
         while not self.query_end_stops_client_.wait_for_service(timeout_sec=1.0):
@@ -86,6 +87,8 @@ class OpcuaBridge(Node):
         while not self.set_extruder_temperature_client_.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
         while not self.start_print_job_client_.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('service not available, waiting again...')
+        while not self.execute_gcode_client_.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
 
 
@@ -188,25 +191,43 @@ class OpcuaBridge(Node):
     async def query_endstops(self, parent):
         future = self.query_end_stops_client_.call_async(QueryEndStops.Request())
         future.add_done_callback(self.process_query_endstops_msg)
-        return 'Query sent and executed asyncronously. Result might take time to return.'
+        await asyncio.ensure_future(future)
+        response=future.result()
+        res= f"x:{response.x}, y:{response.y}, z:{response.z}"
+        return res
     
     @uamethod
     async def set_bed_temperature(self, parent, temp):
         req = SetBedTemperature.Request()
         req.temperature = temp
-        self.set_bed_temperature_client_.call_async(req)
+        future = self.set_bed_temperature_client_.call_async(req)
+        await asyncio.ensure_future(future)
+        return future.result().result
+
     
     @uamethod
     async def set_extruder_temperature(self, parent, temp):
         req = SetExtruderTemperature.Request()
         req.temperature = temp
-        self.set_extruder_temperature_client_.call_async(req)
+        future = self.set_extruder_temperature_client_.call_async(req)
+        await asyncio.ensure_future(future)
+        return future.result().result
 
     @uamethod
     async def start_printing(self, parent, file):
         req = StartPrintJob.Request()
         req.filename = file
-        self.start_print_job_client_.call_async(req)
+        future = self.start_print_job_client_.call_async(req)
+        await asyncio.ensure_future(future)
+        return future.result().result
+
+    @uamethod
+    async def home_all_axes(self, parent):
+        req = ExecuteGCode.Request()
+        req.script = 'G28'
+        future = self.execute_gcode_client_.call_async(req)
+        await asyncio.ensure_future(future)
+        return future.result().result
 
     
     async def setup_address_space(self):
@@ -312,7 +333,7 @@ class OpcuaBridge(Node):
             ua.QualifiedName("Set extruder tempertature", self.idx),
             self.set_extruder_temperature,
             [ua.VariantType.Double],
-            []
+            [ua.VariantType.String]
         )
 
         await printerActionObj.add_method(
@@ -320,7 +341,7 @@ class OpcuaBridge(Node):
             ua.QualifiedName("Set bed tempertature", self.idx),
             self.set_bed_temperature,
             [ua.VariantType.Double],
-            []
+            [ua.VariantType.String]
         )
 
         await printerActionObj.add_method(
@@ -328,7 +349,15 @@ class OpcuaBridge(Node):
             ua.QualifiedName("Start job", self.idx),
             self.start_printing,
             [ua.VariantType.String],
-            []
+            [ua.VariantType.String]
+        )
+
+        await printerActionObj.add_method(
+            ua.NodeId("Home all axis", self.idx),
+            ua.QualifiedName("Home all axis", self.idx),
+            self.home_all_axes,
+            [],
+            [ua.VariantType.String]
         )
 
         # Finally try to get the printer info
