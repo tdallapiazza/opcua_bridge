@@ -124,32 +124,6 @@ class OpcuaBridge(Node):
         else:
             self.get_logger().warning('The printer_info response is empty...')
 
-    async def process_query_endstops_msg(self, future: Future):
-        self.get_logger().info('Query endstops future done.')
-        response=future.result()
-        if response is not None:
-            res= f"x:{response.x}, y:{response.y}, z:{response.z}"
-            self.get_logger().info('Query endstops response is: %s' % (res))
-
-            my_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Frame', f'{self.idx}:X endstop triggered'])
-            if response.x == 'TRIGGERED':
-                await my_node.set_value(True)
-            else:
-                await my_node.set_value(False)
-            
-            my_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Frame', f'{self.idx}:Y endstop triggered'])
-            if response.y == 'TRIGGERED':
-                await my_node.set_value(True)
-            else:
-                await my_node.set_value(False)
-
-            my_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Frame', f'{self.idx}:Z endstop triggered'])
-            if response.z == 'TRIGGERED':
-                await my_node.set_value(True)
-            else:
-                await my_node.set_value(False)
-        else:
-            self.get_logger().warning('The query_endstops response is empty...')
     
     async def update_printer_state(self, msg):
         if self.printerObj is not None:
@@ -190,11 +164,12 @@ class OpcuaBridge(Node):
     @uamethod
     async def query_endstops(self, parent):
         future = self.query_end_stops_client_.call_async(QueryEndStops.Request())
-        future.add_done_callback(self.process_query_endstops_msg)
         await asyncio.ensure_future(future)
         response=future.result()
-        res= f"x:{response.x}, y:{response.y}, z:{response.z}"
-        return res
+        x = True if response.x == 'TRIGGERED' else False
+        y = True if response.y == 'TRIGGERED' else False
+        z = True if response.z == 'TRIGGERED' else False
+        return x, y, z
     
     @uamethod
     async def set_bed_temperature(self, parent, temp):
@@ -291,9 +266,6 @@ class OpcuaBridge(Node):
         #      frame
         printerFrameObj = await printerSystemObj.add_object(self.idx, "Frame")
         await printerFrameObj.add_variable(self.idx, "Filament present", ua.Variant(False, ua.VariantType.Boolean))
-        await printerFrameObj.add_variable(self.idx, "X endstop triggered", ua.Variant(False, ua.VariantType.Boolean))
-        await printerFrameObj.add_variable(self.idx, "Y endstop triggered", ua.Variant(False, ua.VariantType.Boolean))
-        await printerFrameObj.add_variable(self.idx, "Z endstop triggered", ua.Variant(False, ua.VariantType.Boolean))
         await printerFrameObj.add_variable(self.idx, "Chamber temperature", 0.0)
 
         #      spool
@@ -325,7 +297,7 @@ class OpcuaBridge(Node):
             ua.QualifiedName("Querry enstops", self.idx),
             self.query_endstops,
             [],
-            [ua.VariantType.String]
+            [ua.VariantType.Boolean, ua.VariantType.Boolean, ua.VariantType.Boolean]
         )
 
         await printerActionObj.add_method(
