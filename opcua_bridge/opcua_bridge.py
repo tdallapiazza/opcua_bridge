@@ -27,7 +27,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.task import Future
 
-from printer_interfaces.msg import PrinterState, HeaterBed, Extruder, Fans
+from printer_interfaces.msg import PrinterState, HeaterBed, Extruder, Fans, PrintStats
 from printer_interfaces.srv import GetPrinterInfo, QueryEndStops, SetBedTemperature, SetExtruderTemperature, StartPrintJob, ExecuteGCode
 
 class OpcuaBridge(Node):
@@ -73,6 +73,12 @@ class OpcuaBridge(Node):
             Fans,
             'moonraker_bridge/status/fans',
             self.update_fans,
+            10
+        )
+        self.print_stats_sub_ = self.create_subscription(
+            PrintStats,
+            'moonraker_bridge/status/print_stats',
+            self.update_print_stats,
             10
         )
 
@@ -175,6 +181,21 @@ class OpcuaBridge(Node):
             await a_node.set_value(False if msg.heater_fan_speed == 0.0 else True)
             a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Hotend', f'{self.idx}:Piece cooling fan speed'])
             await a_node.set_value(msg.piece_cooling_fan_speed)
+
+        else:
+            self.get_logger().warning('Processing heater_bed message but address_space not currently setup')
+
+    async def update_print_stats(self, msg):
+        if self.printerObj is not None:
+            a_node = await self.printerObj.get_child([f'{self.idx}:Job', f'{self.idx}:State'])
+            await a_node.set_value(msg.state)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Job', f'{self.idx}:Filename'])
+            await a_node.set_value(msg.filename)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Job', f'{self.idx}:Total job duration [s]'])
+            await a_node.set_value(msg.total_duration)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Job', f'{self.idx}:Job print time spent [s]'])
+            await a_node.set_value(msg.print_duration)
+
 
         else:
             self.get_logger().warning('Processing heater_bed message but address_space not currently setup')
@@ -305,7 +326,7 @@ class OpcuaBridge(Node):
         #   job object
         printerJobObj = await self.printerObj.add_object(self.idx, "Job")
         await printerJobObj.add_variable(self.idx, "State", ua.Variant('', ua.VariantType.String))
-        await printerJobObj.add_variable(self.idx, "State message", ua.Variant('', ua.VariantType.String))
+        await printerJobObj.add_variable(self.idx, "Filename", ua.Variant('', ua.VariantType.String))
         await printerJobObj.add_variable(self.idx, "Total job duration [s]", 0.0)
         await printerJobObj.add_variable(self.idx, "Job print time spent [s]", 0.0)
 
