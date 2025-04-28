@@ -27,7 +27,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.task import Future
 
-from printer_interfaces.msg import PrinterState, HeaterBed, Extruder
+from printer_interfaces.msg import PrinterState, HeaterBed, Extruder, Fans
 from printer_interfaces.srv import GetPrinterInfo, QueryEndStops, SetBedTemperature, SetExtruderTemperature, StartPrintJob, ExecuteGCode
 
 class OpcuaBridge(Node):
@@ -55,20 +55,26 @@ class OpcuaBridge(Node):
             PrinterState,
             'moonraker_bridge/status/state',
             self.update_printer_state,
-            10)
-        self.printer_state_sub_  # prevent unused variable warning
+            10
+        )
         self.heater_bed_sub_ = self.create_subscription(
             HeaterBed,
             'moonraker_bridge/status/heater_bed',
             self.update_heater_bed,
-            10)
-        self.heater_bed_sub_  # prevent unused variable warning
+            10
+        )
         self.extruder_sub_ = self.create_subscription(
             Extruder,
             'moonraker_bridge/status/extruder',
             self.update_extruder,
-            10)
-        self.extruder_sub_  # prevent unused variable warning
+            10
+        )
+        self.fans_sub_ = self.create_subscription(
+            Fans,
+            'moonraker_bridge/status/fans',
+            self.update_fans,
+            10
+        )
 
     def setup_clients(self):
         # wait for service to be available
@@ -157,6 +163,18 @@ class OpcuaBridge(Node):
             await a_node.set_value(msg.target)
             a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Hotend', f'{self.idx}:Power (PWM)'])
             await a_node.set_value(msg.power_pwm)
+
+        else:
+            self.get_logger().warning('Processing heater_bed message but address_space not currently setup')
+        
+    async def update_fans(self, msg):
+        if self.printerObj is not None:
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Frame', f'{self.idx}:Controller fan ON'])
+            await a_node.set_value(False if msg.controller_fan_speed == 0.0 else True)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Hotend', f'{self.idx}:Hot end fan ON'])
+            await a_node.set_value(False if msg.heater_fan_speed == 0.0 else True)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Hotend', f'{self.idx}:Piece cooling fan speed'])
+            await a_node.set_value(msg.piece_cooling_fan_speed)
 
         else:
             self.get_logger().warning('Processing heater_bed message but address_space not currently setup')
@@ -267,6 +285,7 @@ class OpcuaBridge(Node):
         printerFrameObj = await printerSystemObj.add_object(self.idx, "Frame")
         await printerFrameObj.add_variable(self.idx, "Filament present", ua.Variant(False, ua.VariantType.Boolean))
         await printerFrameObj.add_variable(self.idx, "Chamber temperature", 0.0)
+        await printerFrameObj.add_variable(self.idx, 'Controller fan ON', ua.Variant(False, ua.VariantType.Boolean))
 
         #      spool
         printerSpoolObj = await printerSystemObj.add_object(self.idx, "Spool") # Structure from OpenTag spec. https://github.com/Bambu-Research-Group/RFID-Tag-Guide/blob/main/OpenTag.md
