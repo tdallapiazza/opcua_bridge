@@ -27,7 +27,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.task import Future
 
-from printer_interfaces.msg import PrinterState, HeaterBed, Extruder, Fans, PrintStats
+from printer_interfaces.msg import PrinterState, HeaterBed, Extruder, Fans, PrintStats, SpoolData
 from printer_interfaces.srv import GetPrinterInfo, QueryEndStops, SetBedTemperature, SetExtruderTemperature, StartPrintJob, ExecuteGCode
 
 class OpcuaBridge(Node):
@@ -79,6 +79,12 @@ class OpcuaBridge(Node):
             PrintStats,
             'moonraker_bridge/status/print_stats',
             self.update_print_stats,
+            10
+        )
+        self.spool_data_sub_ = self.create_subscription(
+            SpoolData,
+            'printer_spool/spool_data',
+            self.update_spool_data,
             10
         )
 
@@ -136,7 +142,27 @@ class OpcuaBridge(Node):
         else:
             self.get_logger().warning('The printer_info response is empty...')
 
-    
+    async def update_spool_data(self, msg):
+        if self.printerObj is not None:
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Spool', f'{self.idx}:Spool ID'])
+            await a_node.set_value(msg.spool_id.tobytes().hex(':'))
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Spool', f'{self.idx}:Filament Manufacturer'])
+            await a_node.set_value(msg.filament_manufacturer)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Spool', f'{self.idx}:Material name'])
+            await a_node.set_value(msg.material_name)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Spool', f'{self.idx}:Color Name'])
+            await a_node.set_value(msg.color_name)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Spool', f'{self.idx}:Print Temp [deg C]'])
+            await a_node.set_value(msg.print_temp)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Spool', f'{self.idx}:Bed Temp [deg C]'])
+            await a_node.set_value(msg.bed_temp)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Spool', f'{self.idx}:Density'])
+            await a_node.set_value(msg.density)
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Spool', f'{self.idx}:Color Hex'])
+            await a_node.set_value(msg.color_hex.tobytes().hex(':'))
+            a_node = await self.printerObj.get_child([f'{self.idx}:Systems', f'{self.idx}:Spool', f'{self.idx}:Filament weight (measured) [kg]'])
+            await a_node.set_value(msg.weight_measured)
+
     async def update_printer_state(self, msg):
         if self.printerObj is not None:
             if msg.previous_state == PrinterState.NOT_READY and msg.current_state == PrinterState.READY:
@@ -310,18 +336,15 @@ class OpcuaBridge(Node):
 
         #      spool
         printerSpoolObj = await printerSystemObj.add_object(self.idx, "Spool") # Structure from OpenTag spec. https://github.com/Bambu-Research-Group/RFID-Tag-Guide/blob/main/OpenTag.md
-        await printerSpoolObj.add_property(self.idx, "Tag version", 0)
+        await printerSpoolObj.add_property(self.idx, "Spool ID", ua.Variant('', ua.VariantType.String))
         await printerSpoolObj.add_property(self.idx, "Filament Manufacturer", ua.Variant('', ua.VariantType.String))
         await printerSpoolObj.add_property(self.idx, "Material name", ua.Variant('', ua.VariantType.String))
         await printerSpoolObj.add_property(self.idx, "Color Name", ua.Variant('', ua.VariantType.String))
-        await printerSpoolObj.add_property(self.idx, "Diameter", 0)
-        await printerSpoolObj.add_property(self.idx, "Weight (nominal)", 0)
-        await printerSpoolObj.add_property(self.idx, "Print Temp (C)", 0)
-        await printerSpoolObj.add_property(self.idx, "Bed Temp (C)", 0)
+        await printerSpoolObj.add_property(self.idx, "Print Temp [deg C]", 0)
+        await printerSpoolObj.add_property(self.idx, "Bed Temp [deg C]", 0)
         await printerSpoolObj.add_property(self.idx, "Density", 0)
-        await printerSpoolObj.add_property(self.idx, "Color Hex", 0x000000)
-        await printerSpoolObj.add_variable(self.idx, "Filament weight (measured)", 0)
-        await printerSpoolObj.add_variable(self.idx, "Filament length (measured)", 0)
+        await printerSpoolObj.add_property(self.idx, "Color Hex", ua.Variant('', ua.VariantType.String))
+        await printerSpoolObj.add_variable(self.idx, "Filament weight (measured) [kg]", 0.0)
         
         #   job object
         printerJobObj = await self.printerObj.add_object(self.idx, "Job")
